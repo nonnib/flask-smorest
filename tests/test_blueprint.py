@@ -234,7 +234,7 @@ class TestBlueprint():
         }
 
     @pytest.mark.parametrize('openapi_version', ('2.0', '3.0.2'))
-    def test_blueprint_arguments_multipart(
+    def test_blueprint_arguments_multipart_files(
             self, app, schemas, openapi_version):
         app.config['OPENAPI_VERSION'] = openapi_version
         app.config['DEBUG'] = True
@@ -289,6 +289,43 @@ class TestBlueprint():
                     }
                 }
             )
+
+    def test_blueprint_arguments_multipart_form_file(self, app, schemas):
+        app.config['DEBUG'] = True
+        api = Api(app)
+        blp = Blueprint('test', __name__, url_prefix='/test')
+        client = app.test_client()
+
+        class FilesSchema(ma.Schema):
+            file_1 = Upload()
+
+        class FormSchema(ma.Schema):
+            value = ma.fields.String()
+
+        @blp.route('/', methods=['POST'])
+        @blp.arguments(FilesSchema, location='files')
+        @blp.arguments(FormSchema, location='form')
+        def func(files, form):
+            return jsonify(
+                files['file_1'].read().decode(),
+                form['value'],
+            )
+
+        api.register_blueprint(blp)
+        spec = api.spec.to_dict()
+
+        data = {
+            'file_1': (io.BytesIO('Test string'.encode()), 'bin_file'),
+            'value': 'Test value',
+        }
+
+        response = client.post('/test/', data=data)
+        assert response.json == ['Test string', 'Test value']
+
+        from pprint import pprint
+        pprint(spec['paths']['/test/']['post'])
+
+
 
     # This is only relevant to OAS3.
     @pytest.mark.parametrize('openapi_version', ('3.0.2', ))
