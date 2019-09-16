@@ -41,17 +41,26 @@ class ErrorHandlerMixin:
         headers = {}
         payload = {'code': error.code, 'status': error.name}
 
-        # Get additional info passed as kwargs when calling abort
-        # data may not exist if
-        # - HTTPException was raised not using webargs abort or
-        # - no kwargs were passed (https://github.com/sloria/webargs/pull/184)
-        #   and webargs<1.9.0
+        # When using webargs'abort (republished in flask-rest-api),
+        # the user can pass
+        # - a ValidationError as exc
+        # - custom kwargs
+        # Those are stored in the HTTPException
+
+        # TODO:
+        # - Publish our own abort
+        # - Docstring in our own abort
+        # - Make it a Blueprint method?
+
+        exc = getattr(error, 'exc', None)
+        if exc:
+            payload['errors'] = exc.messages
         data = getattr(error, 'data', None)
         if data:
             # If we passed a custom message
             if 'message' in data:
                 payload['message'] = data['message']
-            # If we passed "errors"
+            # If we passed "errors" as kwargs
             if 'errors' in data:
                 payload['errors'] = data['errors']
             # If webargs added validation errors as "messages"
