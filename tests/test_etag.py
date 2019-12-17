@@ -212,17 +212,24 @@ class TestEtag():
             else:
                 blp._check_precondition()
 
+    @pytest.mark.parametrize('method', HTTP_METHODS)
     @pytest.mark.parametrize('etag_disabled', (True, False))
-    def test_etag_check_etag(self, app, schemas, etag_disabled):
+    def test_etag_check_etag(self, app, schemas, method, etag_disabled):
         app.config['ETAG_DISABLED'] = etag_disabled
         blp = Blueprint('test', __name__)
         etag_schema = schemas.DocEtagSchema
         old_item = {'item_id': 1, 'db_field': 0}
         new_item = {'item_id': 1, 'db_field': 1}
+        new_etag = blp._generate_etag(new_item)
+        new_etag_with_schema = blp._generate_etag(new_item, etag_schema)
         old_etag = blp._generate_etag(old_item)
         old_etag_with_schema = blp._generate_etag(old_item, etag_schema)
 
-        with app.test_request_context('/', headers={'If-Match': old_etag}):
+        with app.test_request_context(
+                '/',
+                method=method,
+                headers={'If-Match': old_etag},
+        ):
             blp.check_etag(old_item)
             if not etag_disabled:
                 with pytest.raises(PreconditionFailed):
@@ -230,13 +237,56 @@ class TestEtag():
             else:
                 blp.check_etag(new_item)
         with app.test_request_context(
-                '/', headers={'If-Match': old_etag_with_schema}):
+                '/',
+                method=method,
+                headers={'If-Match': old_etag_with_schema},
+        ):
             blp.check_etag(old_item, etag_schema)
             if not etag_disabled:
                 with pytest.raises(PreconditionFailed):
                     blp.check_etag(new_item, etag_schema)
             else:
                 blp.check_etag(new_item)
+        with app.test_request_context(
+                '/',
+                method=method,
+                headers={
+                    'If-Match': [old_etag, new_etag],
+                    'If-None-Match': old_etag
+                },
+        ):
+            blp.check_etag(new_item)
+            if not etag_disabled:
+                with pytest.raises(PreconditionFailed):
+                    blp.check_etag(old_item)
+            else:
+                blp.check_etag(old_item)
+        with app.test_request_context(
+                '/',
+                method=method,
+                headers={
+                    'If-Match': [old_etag_with_schema, new_etag_with_schema],
+                    'If-None-Match': old_etag_with_schema,
+                },
+        ):
+            blp.check_etag(new_item, etag_schema)
+            if not etag_disabled:
+                with pytest.raises(PreconditionFailed):
+                    blp.check_etag(old_item, etag_schema)
+            else:
+                blp.check_etag(old_item)
+
+        with mock.patch.object(app.logger, 'warning') as mock_warning:
+            with app.test_request_context(
+                    '/',
+                    method=method,
+                    headers={'If-Match': old_etag},
+            ):
+                blp.check_etag(old_item)
+                if method in ['PUT', 'PATCH', 'DELETE']:
+                    assert not mock_warning.called
+                else:
+                    assert mock_warning.called
 
     @pytest.mark.parametrize('method', HTTP_METHODS)
     def test_etag_verify_check_etag_warning(self, app, method):
@@ -245,15 +295,18 @@ class TestEtag():
         old_etag = blp._generate_etag(old_item)
 
         with mock.patch.object(app.logger, 'warning') as mock_warning:
-            with app.test_request_context('/', method=method,
-                                          headers={'If-Match': old_etag}):
+            with app.test_request_context(
+                    '/',
+                    method=method,
+                    headers={'If-Match': old_etag},
+            ):
                 blp._verify_check_etag()
                 if method in ['PUT', 'PATCH', 'DELETE']:
                     assert mock_warning.called
-                    mock_warning.reset_mock()
                 else:
                     assert not mock_warning.called
                 blp.check_etag(old_item)
+                mock_warning.reset_mock()
                 blp._verify_check_etag()
                 assert not mock_warning.called
 
